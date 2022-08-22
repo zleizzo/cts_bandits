@@ -22,4 +22,4 @@ echo "My SLURM_ARRAY_TASK_ID is " $SLURM_ARRAY_TASK_ID
 # ml python/3.6.1
 # conda activate cohort
 # python3 run_experiment.py $SLURM_ARRAY_TASK_ID
-python3 run_diff_core_experiment.py $SLURM_ARRAY_TASK_ID
+python3 experiment_with_t.py $SLURM_ARRAY_TASK_ID
