@@ -3,8 +3,8 @@
 #SBATCH --job-name=cohort
 #SBATCH --output=/home/users/zizzo/log/cohort_%A_%a.out
 #SBATCH --error=/home/users/zizzo/log/cohort_%A_%a.err
-#SBATCH --array=0-999
-#SBATCH --time=1:59:00
+#SBATCH --array=0-720
+#SBATCH --time=5:59:00
 #SBATCH -p normal,jamesz
 #SBATCH --ntasks=1
 #SBATCH --mem-per-cpu=20G
