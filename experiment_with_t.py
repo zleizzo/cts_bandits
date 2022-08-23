@@ -52,22 +52,34 @@ def compute_mu_hat(s, q):
     return (2. + s) / (2. + q)
 
 
-def hjb_term(net, t, s, q, lam, p):
-    state = torch.hstack([s, q, t])
-    state.requires_grad = True
-
+def compute_grad_V(net, state):
     V = net(state)
     grad_V = torch.autograd.grad(V, state, create_graph = True)[0]
-    
-    K = len(s)
+    return grad_V
+
+
+def compute_logsumexp_terms(net, state, K):
+    grad_V = compute_grad_V(net, state)
     ds2 = torch.zeros(K)
     for k in range(K):
         ds2[k] = torch.autograd.grad(grad_V[k], state, create_graph = True)[0][k]
 
+    s = state[:K]
+    q = state[K:2*K]
     mu_hat = compute_mu_hat(s, q)
 
-    logsumexp_terms = (mu_hat * grad_V[:K] + grad_V[K:2*K] + ds2 / 2. + mu_hat)
     # mu_k * ds_k V + dq_k V + (1/2) ds_k^2 V + mu_k
+    logsumexp_terms = (mu_hat * grad_V[:K] + grad_V[K:2*K] + ds2 / 2. + mu_hat)
+
+    return logsumexp_terms
+
+
+def hjb_term(net, t, s, q, lam, p, K):
+    state = torch.hstack([s, q, t])
+    state.requires_grad = True
+
+    grad_V = compute_grad_V(net, state)
+    logsumexp_terms = compute_logsumexp_terms(net, state, K)
 
     return torch.pow(torch.abs(grad_V[0] + lam * torch.logsumexp(logsumexp_terms / lam, 0)), p)
 
@@ -91,7 +103,7 @@ def train(net, iters, reg, lr, batch_size, lam, p, K):
             t, s, q = sample(K)
             _, s_bdry, q_bdry = sample(K, t=1.)
 
-            loss += hjb_term(net, t, s, q, lam, p)
+            loss += hjb_term(net, t, s, q, lam, p, K)
             bdry_loss += hjb_bdry(net, s_bdry, q_bdry, p)
         
         total_loss = (loss + reg * bdry_loss) / batch_size
@@ -103,6 +115,15 @@ def train(net, iters, reg, lr, batch_size, lam, p, K):
     return net
 
 
+def policy(net, t, s, q, K):
+    state = torch.hstack([s, q, torch.tensor(1.)])
+    state.requires_grad = True
+    softmax_inputs = compute_logsumexp_terms(net, state, K)
+    return F.softmax(softmax_inputs, 0)
+
+
+
+# Constants
 K = 4
 p = 2
 lam = 0.1
@@ -113,53 +134,3 @@ regs = [1., 0.3, 0.1, 0.03]
 lrs = [1., 0.3, 0.1, 0.03, 0.01]
 batch_sizes = [1, 5, 25]
 iterss = [100000, 1000000, 10000000, 100000000]
-
-job = int(sys.argv[1])
-# job = 0
-
-# param_dict = {'hl_size':hl_sizes, 'reg':regs, 'lr':lrs, 'batch_size':batch_sizes, 'iters':iters}
-
-hl_size = hl_sizes[job % len(hl_sizes)]
-job = int(job / len(hl_sizes))
-
-reg = regs[job % len(regs)]
-job = int(job / len(regs))
-
-lr = lrs[job % len(lrs)]
-job = int(job / len(lrs))
-
-batch_size = batch_sizes[job % len(batch_sizes)]
-job = int(job / len(batch_sizes))
-
-iters = iterss[job % len(iterss)]
-job = int(job / len(iterss))
-
-
-
-net = BigNet(K, hl_size)
-train(net, iters, reg, lr, batch_size, lam, p, K)
-
-PATH = f'models/{hl_size},{reg},{lr},{batch_size},{iters}.pt'
-torch.save(net.state_dict(), PATH)
-
-
-# # Testing
-# K = 4
-# p = 2
-# hl_size = 30
-# reg = 1.
-# lr = 0.1
-# batch_size = 5
-# lam = 0.1
-# iters = 10
-
-# net = BigNet(K, hl_size)
-# train(net, iters, reg, lr, batch_size, lam, p, K)
-
-# PATH = 'model.pt'
-# torch.save(net.state_dict(), PATH)
-
-# net = BigNet(K, hl_size)
-# print([weight for weight in net.parameters()][-1])
-# net.load_state_dict(torch.load(PATH))
-# print([weight for weight in net.parameters()][-1])
