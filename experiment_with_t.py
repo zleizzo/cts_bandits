@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+import numpy as np
+from tqdm import tqdm
 
 
 
@@ -120,6 +122,112 @@ def policy(net, t, s, q, K):
     state.requires_grad = True
     softmax_inputs = compute_logsumexp_terms(net, state, K)
     return F.softmax(softmax_inputs, 0)
+
+
+def run_policy(net, n, reps, K):
+    # n: Time horizon
+    # reps: Number of Monte Carlo samples of the experiment to run
+    rwds = torch.zeros(reps)
+
+    for r in tqdm(range(reps)):
+        s = torch.zeros(K)
+        q = torch.zeros(K)
+        for i in range(n):
+            t = i / n
+            pi = policy(net, t, s, q, K)
+            
+            mu_hat = compute_mu_hat(s, q)
+            # # Get expected reward
+            # s += pi * mu_hat / n
+            # q += pi / n
+
+            # Get a random reward
+            arm = torch.multinomial(pi, 1)
+            rwd = 2 * torch.bernoulli(mu_hat[arm]) - 1
+            s[arm] += rwd / n
+            q[arm] += 1 / n
+            if i == n - 1:
+                rwds[r] = torch.sum(s)
+    
+    return rwds
+                
+
+def run_policy_fixed_mu(net, n, reps, mus):
+    rwds = torch.zeros(reps)
+    K = len(mus)
+
+    for r in tqdm(range(reps)):
+        s = torch.zeros(K)
+        q = torch.zeros(K)
+        for i in range(n):
+            t = i / n
+            pi = policy(net, t, s, q, K)
+            
+            mu_hat = compute_mu_hat(s, q)
+            # # Get expected reward
+            # s += pi * mu_hat / n
+            # q += pi / n
+
+            # Get a random reward
+            arm = torch.multinomial(pi, 1)
+            rwd = 2 * torch.bernoulli(mus[arm]) - 1
+            s[arm] += rwd / n
+            q[arm] += 1 / n
+        
+        rwds[r] = torch.sum(s)
+    
+    return rwds
+
+
+def ucb(n, reps, mus):
+    rwds = torch.zeros(reps)
+    K = len(mus)
+
+    for r in tqdm(range(reps)):
+        s = torch.bernoulli(mus)
+        q = torch.ones(K)
+
+        for t in range(n - K):
+            mu_hat = s / q
+            confidence = torch.sqrt(4 * np.log(n) / q)
+            ucb_t = mu_hat + confidence
+
+            arm = torch.argmax(ucb_t)
+
+            rwd = 2 * torch.bernoulli(mus[arm]) - 1
+            s[arm] += rwd
+            q[arm] += 1
+
+        rwds[r] = torch.sum(s)
+
+    return rwds
+
+
+def eps_greedy(n, reps, mus, C):
+    rwds = torch.zeros(reps)
+    K = len(mus)
+    
+    min_gap = torch.topk(mus, 2)[0] - torch.topk(mus, 2)[1]
+
+    for r in tqdm(range(reps)):
+        s = torch.bernoulli(mus)
+        q = torch.ones(K)
+
+        for t in range(n - K):
+            eps_t = C * K / (t * (min_gap ** 2))
+            if torch.rand(1) < eps_t:
+                arm = torch.randint(K)
+            else:
+                arm = torch.argmax(s / q)
+            
+            rwd = 2 * torch.bernoulli(mus[arm]) - 1
+            s[arm] += rwd
+            q[arm] += 1
+
+        rwds[r] = torch.sum(s)
+
+    return rwds
+
 
 
 
