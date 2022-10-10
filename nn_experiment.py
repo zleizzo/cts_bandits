@@ -13,7 +13,7 @@ class Net(nn.Module):
         self.fc3 = nn.Linear(20, 1)
 
     def forward(self, x):
-        x = F.relu(self.fc1(x))
+        x = F.tanh(self.fc1(x))
         x = self.fc3(x)
         return x
 
@@ -26,8 +26,8 @@ class BigNet(nn.Module):
         self.fc3 = nn.Linear(20, 1)
 
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
+        x = F.tanh(self.fc1(x))
+        x = F.tanh(self.fc2(x))
         x = self.fc3(x)
         return x
 

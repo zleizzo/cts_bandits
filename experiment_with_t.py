@@ -117,6 +117,48 @@ def train(net, iters, reg, lr, batch_size, lam, p, K):
     return net
 
 
+def train_lbfgs(net, num_samples, iters, reg, lam, p, K):
+    optimizer = optim.LBFGS(net.parameters(), line_search_fn="strong_wolfe")
+
+    tx = []
+    sx = []
+    qx = []
+
+    sx_bdry = []
+    qx_bdry = []
+
+    # Generate batch data
+    for i in range(num_samples):
+        t, s, q = sample(K)
+        tx.append(t)
+        sx.append(s)
+        qx.append(q)
+
+        _, s_bdry, q_bdry = sample(K, t=1.)
+        sx_bdry.append(s)
+        qx_bdry.append(q)
+
+    def closure():
+        loss = 0.
+        bdry_loss = 0.
+
+        for t, s, q, s_bdry, q_bdry in zip(tx, sx, qx, sx_bdry, qx_bdry):
+            loss += hjb_term(net, t, s, q, lam, p, K)
+            bdry_loss += hjb_bdry(net, s_bdry, q_bdry, p)
+        
+        total_loss = (loss + reg * bdry_loss) / num_samples
+        optimizer.zero_grad()
+        total_loss.backward()
+        return total_loss
+
+    for i in tqdm(range(iters)):
+        optimizer.step(closure)
+        if i % 100 == 0:
+            print(f'Loss on iter {i}: {closure()}')
+
+    return net
+
+
 def policy(net, t, s, q, K):
     state = torch.hstack([s, q, torch.tensor(1.)])
     state.requires_grad = True
@@ -156,7 +198,8 @@ def run_policy_fixed_mu(net, n, reps, mus):
     rwds = torch.zeros(reps)
     K = len(mus)
 
-    for r in tqdm(range(reps)):
+    # for r in tqdm(range(reps)):
+    for r in range(reps):
         s = torch.zeros(K)
         q = torch.zeros(K)
         for i in range(n):
@@ -183,7 +226,8 @@ def ucb(n, reps, mus):
     rwds = torch.zeros(reps)
     K = len(mus)
 
-    for r in tqdm(range(reps)):
+    # for r in tqdm(range(reps)):
+    for r in range(reps):
         s = torch.bernoulli(mus)
         q = torch.ones(K)
 
@@ -195,8 +239,8 @@ def ucb(n, reps, mus):
             arm = torch.argmax(ucb_t)
 
             rwd = 2 * torch.bernoulli(mus[arm]) - 1
-            s[arm] += rwd
-            q[arm] += 1
+            s[arm] += rwd / n
+            q[arm] += 1 / n
 
         rwds[r] = torch.sum(s)
 
@@ -207,22 +251,25 @@ def eps_greedy(n, reps, mus, C):
     rwds = torch.zeros(reps)
     K = len(mus)
     
-    min_gap = torch.topk(mus, 2)[0] - torch.topk(mus, 2)[1]
+    min_gap = torch.topk(mus, 2)[0][0] - torch.topk(mus, 2)[0][1]
+    # print(min_gap)
 
-    for r in tqdm(range(reps)):
+    # for r in tqdm(range(reps)):
+    for r in range(reps):
         s = torch.bernoulli(mus)
         q = torch.ones(K)
 
         for t in range(n - K):
             eps_t = C * K / (t * (min_gap ** 2))
+            # print(eps_t)
             if torch.rand(1) < eps_t:
-                arm = torch.randint(K)
+                arm = np.random.randint(K)
             else:
                 arm = torch.argmax(s / q)
             
             rwd = 2 * torch.bernoulli(mus[arm]) - 1
-            s[arm] += rwd
-            q[arm] += 1
+            s[arm] += rwd / n
+            q[arm] += 1 / n
 
         rwds[r] = torch.sum(s)
 
